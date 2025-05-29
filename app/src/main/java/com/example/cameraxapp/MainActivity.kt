@@ -40,7 +40,9 @@ typealias LumaListener = (luma: Double) -> Unit
 class MainActivity : AppCompatActivity() {
     private lateinit var viewBinding: ActivityMainBinding
 
-    private var imageCapture: ImageCapture? = null
+    //private var imageCapture: ImageCapture? = null
+
+    private var imageAnalysis: ImageAnalysis? = null
 
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
@@ -60,15 +62,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Set up the listeners for take photo and video capture buttons
-        viewBinding.imageCaptureButton.setOnClickListener { takePhoto() }
+       // viewBinding.imageCaptureButton.setOnClickListener { takePhoto() }
         viewBinding.videoCaptureButton.setOnClickListener { captureVideo() }
 
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
 
+    /*
     private fun takePhoto() {
+     */
         // Get a stable reference of the modifiable image capture use case
-        val imageCapture = imageCapture ?: return
+    /*    val imageCapture = imageCapture ?: return
 
         // Create time stamped name and MediaStore entry.
         val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US)
@@ -106,7 +110,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         )
-    }
+    } */
 
     private fun captureVideo() {}
 
@@ -124,8 +128,17 @@ class MainActivity : AppCompatActivity() {
                     it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
                 }
 
-            imageCapture = ImageCapture.Builder()
+            //imageCapture = ImageCapture.Builder().build()
+
+            imageAnalysis = ImageAnalysis.Builder()
                 .build()
+                .also {
+                    it.setAnalyzer(cameraExecutor, LuminosityAnalyzer { luma ->
+                        // This block is the 'listener' we defined in LuminosityAnalyzer.
+                        // It will be called for each frame with the calculated luma.
+                        Log.d(TAG, "Average luminosity: $luma")
+                    })
+                }
 
             // Select back camera as a default
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -136,7 +149,7 @@ class MainActivity : AppCompatActivity() {
 
                 // Bind use cases to camera
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageCapture)
+                    this, cameraSelector, preview, imageAnalysis/*, imageCapture*/)
 
             } catch(exc: Exception) {
                 Log.e(TAG, "Use case binding failed", exc)
@@ -157,6 +170,31 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+    }
+
+    private class LuminosityAnalyzer(private val listener: (luma: Double) -> Unit) : ImageAnalysis.Analyzer {
+
+        private fun ByteBuffer.toByteArray(): ByteArray {
+            rewind()    // Rewind the buffer to zero
+            val data = ByteArray(remaining())
+            get(data)   // Copy the buffer into a byte array
+            return data // Return the byte array
+        }
+
+        override fun analyze(image: ImageProxy) {
+            // This is called for each camera frame.
+
+            val buffer = image.planes[0].buffer
+            val data = buffer.toByteArray()
+            val pixels = data.map { it.toInt() and 0xFF }
+            val luma = pixels.average()
+
+            listener(luma) // Pass the calculated luma to the listener
+
+            // IMPORTANT: You MUST call image.close() on every image analyzed.
+            // Otherwise, CameraX will stop producing frames.
+            image.close()
+        }
     }
 
     companion object {
