@@ -27,12 +27,13 @@ class MainActivity : AppCompatActivity() {
     private var imageAnalysis: ImageAnalysis? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
+    private var analyzeNextFrame = false
 
     private lateinit var cameraExecutor: ExecutorService
 
     private external fun stringFromJNI(): String
 
-    private external fun analyzeFrameNative(data: ByteArray, width: Int, height: Int): Float
+    private external fun analyzeFrameNative(data: ByteArray, width: Int, height: Int): String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,8 +47,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         viewBinding.videoCaptureButton.setOnClickListener { captureVideo() }
-
         viewBinding.imageCaptureButton.setOnClickListener { takePhoto() }
+        viewBinding.detectLinesButton.setOnClickListener {
+            analyzeNextFrame = true
+        }
 
         cameraExecutor = Executors.newSingleThreadExecutor()
     }
@@ -73,6 +76,12 @@ class MainActivity : AppCompatActivity() {
                 .build()
                 .also {
                     it.setAnalyzer(cameraExecutor) { image ->
+                        if (!analyzeNextFrame) {
+                            image.close()
+                            return@setAnalyzer
+                        }
+                        analyzeNextFrame = false
+
                         val buffer = image.planes[0].buffer
                         val bytes = ByteArray(buffer.remaining())
                         buffer.get(bytes)
@@ -81,11 +90,23 @@ class MainActivity : AppCompatActivity() {
                         val brightness = analyzeFrameNative(bytes, image.width, image.height)
 
                         runOnUiThread {
-                            viewBinding.analysisOverlay.text =
-                                stringFromJNI() + "\nAve Screen Brightness: %.1f".format(brightness) +
-                                        " / 255.0"
-                        }
+                            val resultString = analyzeFrameNative(bytes, image.width, image.height)
 
+                            val lines = resultString.split(";")
+                                .filter { segment -> segment.contains(",") }
+                                .mapNotNull { segment ->
+                                    val parts = segment.split(",")
+                                    if (parts.size == 2) {
+                                        val rho = parts[0].toFloatOrNull()
+                                        val theta = parts[1].toFloatOrNull()
+                                        if (rho != null && theta != null) rho to theta else null
+                                    } else null
+                                }
+
+                            viewBinding.overlayView.setLines(lines)
+
+                            viewBinding.analysisOverlay.text = "Detected ${lines.size} lines"
+                        }
                         image.close()
                     }
                 }

@@ -14,6 +14,13 @@
         app:layout_constraintBottom_toTopOf="@+id/buttonRow"
         android:layout_marginBottom="8dp" />
 
+    <com.example.cameraxapp.OverlayView
+        android:id="@+id/overlayView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/buttonRow" />
+
     <!-- Guideline at 1/3 screen height -->
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline1"
@@ -53,7 +60,7 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="Take Photo" />
+            android:text="@string/take_photo" />
 
         <Button
             android:id="@+id/videoCaptureButton"
@@ -61,5 +68,13 @@
             android:layout_weight="1"
             android:layout_height="wrap_content"
             android:text="@string/start_capture" />
+
+        <Button
+            android:id="@+id/detectLinesButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="@string/detect_lines" />
+
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>
