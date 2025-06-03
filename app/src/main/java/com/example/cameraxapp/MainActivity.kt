@@ -82,12 +82,37 @@ class MainActivity : AppCompatActivity() {
                         }
                         analyzeNextFrame = false
 
+                        // Step 1: Set transform info for OverlayView
+                        val cropRect = image.cropRect
+                        viewBinding.overlayView.setTransformInfo(
+                            cropLeft = cropRect.left,
+                            cropTop = cropRect.top,
+                            cropWidth = cropRect.width(),
+                            cropHeight = cropRect.height(),
+                            bufferWidth = image.width,
+                            bufferHeight = image.height
+                        )
+
+// Step 2: Temporary manual rotation toggle
+                        val rotated = true // ← to be automated later
+
+// Step 3: Calculate adjusted scale
+                        val adjustedCropWidth = if (rotated) cropRect.height() else cropRect.width()
+                        val adjustedCropHeight = if (rotated) cropRect.width() else cropRect.height()
+
+                        val scaleX = viewBinding.overlayView.width.toFloat() / adjustedCropWidth
+                        val scaleY = viewBinding.overlayView.height.toFloat() / adjustedCropHeight
+                        val scale = minOf(scaleX, scaleY)
+
+// Optional: log for confirmation
+                        Log.d("OverlayDebug", "Adjusted scaleX=$scaleX, scaleY=$scaleY, using scale=$scale")
+
+
                         val buffer = image.planes[0].buffer
                         val bytes = ByteArray(buffer.remaining())
                         buffer.get(bytes)
 
                         val message = stringFromJNI()
-                        val brightness = analyzeFrameNative(bytes, image.width, image.height)
 
                         runOnUiThread {
                             val resultString = analyzeFrameNative(bytes, image.width, image.height)
@@ -103,8 +128,7 @@ class MainActivity : AppCompatActivity() {
                                     } else null
                                 }
 
-                            viewBinding.overlayView.setLines(lines)
-
+                            viewBinding.overlayView.setLines(lines, image.width, image.height)
                             viewBinding.analysisOverlay.text = "Detected ${lines.size} lines"
                         }
                         image.close()

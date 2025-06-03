@@ -45,11 +45,9 @@ Java_com_example_cameraxapp_MainActivity_analyzeFrameNative(
         float theta = line[1];
         oss << rho << "," << theta << ";";
     }
-
     env->ReleaseByteArrayElements(frameData, dataPtr, 0);
     return env->NewStringUTF(oss.str().c_str());
 }
-
 
 /*
 extern "C" JNIEXPORT jfloat JNICALL
