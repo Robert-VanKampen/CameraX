@@ -32,7 +32,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
 
     private external fun stringFromJNI(): String
-
     private external fun analyzeFrameNative(data: ByteArray, width: Int, height: Int): String
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,7 +45,7 @@ class MainActivity : AppCompatActivity() {
             requestPermissions()
         }
 
-        viewBinding.videoCaptureButton.setOnClickListener { captureVideo() }
+        //viewBinding.videoCaptureButton.setOnClickListener { captureVideo() }
         viewBinding.imageCaptureButton.setOnClickListener { takePhoto() }
         viewBinding.detectLinesButton.setOnClickListener {
             analyzeNextFrame = true
@@ -61,8 +60,8 @@ class MainActivity : AppCompatActivity() {
         cameraProviderFuture.addListener({
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
+            val preview = Preview.Builder().build().also { preview ->
+                preview.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
             }
 
             imageCapture = ImageCapture.Builder().build()
@@ -82,50 +81,50 @@ class MainActivity : AppCompatActivity() {
                         }
                         analyzeNextFrame = false
 
-                        // Step 1: Set transform info for OverlayView
                         val cropRect = image.cropRect
+                        var rotationDegrees_ma = image.imageInfo.rotationDegrees
+                        val rotated = (rotationDegrees_ma == 90 || rotationDegrees_ma == 270)
+
+                        // Inform the overlay view
                         viewBinding.overlayView.setTransformInfo(
                             cropLeft = cropRect.left,
                             cropTop = cropRect.top,
                             cropWidth = cropRect.width(),
                             cropHeight = cropRect.height(),
                             bufferWidth = image.width,
-                            bufferHeight = image.height
+                            bufferHeight = image.height,
+                            rotationDegrees = rotationDegrees_ma
                         )
 
-// Step 2: Temporary manual rotation toggle
-                        val rotated = true // ← to be automated later
-
-// Step 3: Calculate adjusted scale
+                        // Calculate scale
                         val adjustedCropWidth = if (rotated) cropRect.height() else cropRect.width()
                         val adjustedCropHeight = if (rotated) cropRect.width() else cropRect.height()
 
                         val scaleX = viewBinding.overlayView.width.toFloat() / adjustedCropWidth
+                        Log.d("setAnalyzer", "overlayView.width, {$viewBinding.overlayView.width}")
+                        Log.d("setAnalyzer", "scalex, {$scaleX")
                         val scaleY = viewBinding.overlayView.height.toFloat() / adjustedCropHeight
+                        Log.d("setAnalyzer", "overlayView.height, {$viewBinding.overlayView.height}")
+                        Log.d("setAnalyzer", "scaleY, {$scaleY}")
                         val scale = minOf(scaleX, scaleY)
 
-// Optional: log for confirmation
-                        Log.d("OverlayDebug", "Adjusted scaleX=$scaleX, scaleY=$scaleY, using scale=$scale")
+                        Log.d("setAnalyzer", "scaleX=$scaleX, scaleY=$scaleY, scale=$scale")
 
-
+                        // Extract bytes
                         val buffer = image.planes[0].buffer
                         val bytes = ByteArray(buffer.remaining())
                         buffer.get(bytes)
 
-                        val message = stringFromJNI()
-
+                        // Run analysis
                         runOnUiThread {
                             val resultString = analyzeFrameNative(bytes, image.width, image.height)
-
                             val lines = resultString.split(";")
-                                .filter { segment -> segment.contains(",") }
+                                .filter { it.contains(",") }
                                 .mapNotNull { segment ->
                                     val parts = segment.split(",")
-                                    if (parts.size == 2) {
-                                        val rho = parts[0].toFloatOrNull()
-                                        val theta = parts[1].toFloatOrNull()
-                                        if (rho != null && theta != null) rho to theta else null
-                                    } else null
+                                    val rho = parts.getOrNull(0)?.toFloatOrNull()
+                                    val theta = parts.getOrNull(1)?.toFloatOrNull()
+                                    if (rho != null && theta != null) rho to theta else null
                                 }
 
                             viewBinding.overlayView.setLines(lines, image.width, image.height)
@@ -148,70 +147,6 @@ class MainActivity : AppCompatActivity() {
             }
 
         }, ContextCompat.getMainExecutor(this))
-    }
-
-    private fun captureVideo() {
-        val videoCapture = this.videoCapture ?: return
-
-        viewBinding.videoCaptureButton.isEnabled = false
-
-        val curRecording = recording
-        if (curRecording != null) {
-            curRecording.stop()
-            recording = null
-            return
-        }
-
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US)
-            .format(System.currentTimeMillis())
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/CameraX-Video")
-            }
-        }
-
-        val mediaStoreOutputOptions = MediaStoreOutputOptions
-            .Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
-            .setContentValues(contentValues)
-            .build()
-
-        recording = videoCapture.output
-            .prepareRecording(this, mediaStoreOutputOptions)
-            .apply {
-                if (PermissionChecker.checkSelfPermission(this@MainActivity,
-                        Manifest.permission.RECORD_AUDIO) ==
-                    PermissionChecker.PERMISSION_GRANTED) {
-                    withAudioEnabled()
-                }
-            }
-            .start(ContextCompat.getMainExecutor(this)) { recordEvent ->
-                when (recordEvent) {
-                    is VideoRecordEvent.Start -> {
-                        viewBinding.videoCaptureButton.apply {
-                            text = getString(R.string.stop_capture)
-                            isEnabled = true
-                        }
-                    }
-                    is VideoRecordEvent.Finalize -> {
-                        if (!recordEvent.hasError()) {
-                            val msg = "Video capture succeeded: " +
-                                    "${recordEvent.outputResults.outputUri}"
-                            Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
-                            Log.d(TAG, msg)
-                        } else {
-                            recording?.close()
-                            recording = null
-                            Log.e(TAG, "Video capture ends with error: ${recordEvent.error}")
-                        }
-                        viewBinding.videoCaptureButton.apply {
-                            text = getString(R.string.start_capture)
-                            isEnabled = true
-                        }
-                    }
-                }
-            }
     }
 
     private fun takePhoto() {
@@ -250,7 +185,6 @@ class MainActivity : AppCompatActivity() {
             }
         )
     }
-
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(
